@@ -1,0 +1,7 @@
+pyaudio
+faster-whisper
+torch
+numpy
+gspread
+groq
+deepmultilingualpunctuation
