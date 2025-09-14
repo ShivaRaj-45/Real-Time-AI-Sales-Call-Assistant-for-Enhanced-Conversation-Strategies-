@@ -22,7 +22,7 @@ CONFIG = {
     "WHISPER_MODEL": "medium",
     "SILENCE_THRESHOLD": 350,
     "SILENCE_DURATION": 2, # Reduced pause time for faster response
-    "GROQ_API_KEY": "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", # IMPORTANT: PASTE YOUR KEY HERE
+    "GROQ_API_KEY": "YOUR GROQ API KEY", # IMPORTANT: PASTE YOUR KEY HERE
     "COMMUNICATION_FILE": "communication.jsonl"
 }
 
@@ -193,4 +193,5 @@ if __name__ == "__main__":
         whisper_model = setup_models()
         if whisper_model:
             open(CONFIG["COMMUNICATION_FILE"], 'w').close()
+
             live_transcribe_and_analyze(whisper_model)
