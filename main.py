@@ -1,4 +1,4 @@
-# File: backend.py
+# File: main.py
 
 import pyaudio
 import time
@@ -11,25 +11,16 @@ from faster_whisper import WhisperModel
 import torch
 from groq import Groq
 from deepmultilingualpunctuation import PunctuationModel
+import datetime
 
 # --- Configuration ---
 CONFIG = {
-    "CHUNK": 1024,
-    "FORMAT": pyaudio.paInt16,
-    "CHANNELS": 1,
-    "RATE": 16000,
-    # ⭐ KEY CHANGE 1: Upgraded model for maximum accuracy
-    "WHISPER_MODEL": "medium",
-    "SILENCE_THRESHOLD": 350,
-    "SILENCE_DURATION": 2, # Reduced pause time for faster response
-    "GROQ_API_KEY": "YOUR GROQ API KEY", # IMPORTANT: PASTE YOUR KEY HERE
+    "CHUNK": 1024, "FORMAT": pyaudio.paInt16, "CHANNELS": 1, "RATE": 16000,
+    "WHISPER_MODEL": "small", "SILENCE_THRESHOLD": 350, "SILENCE_DURATION": 3.5,
+    "GROQ_API_KEY": "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",
     "COMMUNICATION_FILE": "communication.jsonl"
 }
-
-AGENT_CONFIG = {
-    "LLM_MODEL": "llama-3.1-8b-instant",
-    "CONTEXT_WINDOW": 3,
-}
+AGENT_CONFIG = {"LLM_MODEL": "llama-3.1-8b-instant", "CONTEXT_WINDOW": 3}
 
 # --- Global Models & Clients ---
 punctuation_model = None
@@ -40,158 +31,98 @@ except Exception as e:
     print(f"FATAL: Could not initialize Groq client. Check API key. Error: {e}")
 
 def setup_models():
-    """Loads all necessary AI models."""
+    """Loads all AI models using the 'small' Whisper model on GPU if available."""
     global punctuation_model
     try:
         print("Loading punctuation restoration model...")
         punctuation_model = PunctuationModel()
-        print("✅ Punctuation model loaded successfully.")
-
-        print(f"Loading faster-whisper model ('{CONFIG['WHISPER_MODEL']}')...")
-
+        print(" Punctuation model loaded successfully.")
+        chosen_model = CONFIG["WHISPER_MODEL"]
         if torch.cuda.is_available():
-            device = "cuda"
-            # ⭐ KEY CHANGE: Using int8 for maximum memory savings
-            compute_type = "int8"
+            device, compute_type = "cuda", "float16"
             gpu_name = torch.cuda.get_device_name(0)
-            print(f"✅ NVIDIA GPU detected: {gpu_name}. Using CUDA with int8 precision for lower VRAM usage.")
+            print(f" NVIDIA GPU detected: {gpu_name}.")
+            print(f"   -> Using model: '{chosen_model}' with '{compute_type}' precision for maximum speed.")
         else:
-            device = "cpu"
-            compute_type = "int8"
-            print("INFO: No NVIDIA GPU detected. Using CPU, which will be slower.")
-        
-        whisper_model = WhisperModel(CONFIG["WHISPER_MODEL"], device=device, compute_type=compute_type)
-        print("✅ Faster-Whisper model loaded successfully.")
+            device, compute_type = "cpu", "int8"
+            print(f"INFO: No NVIDIA GPU detected. Using CPU with model '{chosen_model}'.")
+        whisper_model = WhisperModel(chosen_model, device=device, compute_type=compute_type)
+        print(" Faster-Whisper model loaded successfully.")
         return whisper_model
-        
     except Exception as e:
         print(f"FATAL: Error loading models: {e}")
         return None
-    
 
-def CRIS_analyzer_agent(sentence, context_sentences):
+def analyze_sentence(sentence, context_sentences):
     """Analyzes a sentence using the CRIS framework via Groq API."""
-    if not groq_client:
-        return {"Intent": "Error", "Sarcasm": False, "Sentiment": "Neutral", "Reasoning": "Groq client not initialized."}
-
+    if not groq_client: return {"Intent": "Error", "Sentiment": "Neutral", "Reasoning": "Groq client not initialized."}
     context = " ".join(context_sentences)
+    # --- KEY CHANGE: More specific prompt for consistent reasoning ---
     prompt = f"""
-    You are a master analyst AI for sales calls, using the CRIS framework. Your task is to analyze the 'Current Sentence'.
-    **Primary Directive: Your analysis MUST be based on the 'Current Sentence'. Use the 'Previous Context' ONLY to understand nuance (like sarcasm), NOT to influence the sentiment of a factually neutral sentence.**
+    Analyze the 'Current Sentence' based on the 'Previous Context'.
     Previous Context: "{context}"
     Current Sentence: "{sentence}"
-    Perform the following reasoning steps:
-    1.  **Intent Classification:** What is the user's primary intent? (e.g., 'Information Seeking', 'Expressing Frustration', 'Objecting').
-    2.  **Sarcasm Check:** Is sarcasm present?
-    3.  **Sentiment Analysis:** Based ONLY on the Current Sentence and your sarcasm check, what is the final sentiment?
-    Your desired output is a single, raw JSON object with four keys: "intent", "sarcasm_detected" (boolean), "sentiment" ('Positive', 'Negative', or 'Neutral'), and "reasoning" (brief explanation).
+
+    Your desired output is a single, raw JSON object with three keys: "intent", "sentiment", and "reasoning".
+    - "intent": Classify the user's primary goal.
+    - "sentiment": Label the emotion as 'Positive', 'Negative', or 'Neutral'.
+    - "reasoning": Provide a concise, objective, third-person explanation for your classification based only on the evidence in the Current Sentence.
     """
     try:
-        response = groq_client.chat.completions.create(
-            model=AGENT_CONFIG["LLM_MODEL"],
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-        )
+        response = groq_client.chat.completions.create(model=AGENT_CONFIG["LLM_MODEL"], messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}, temperature=0.0)
         result = json.loads(response.choices[0].message.content)
         return {
             "Intent": result.get("intent", "Unknown"),
-            "Sarcasm": result.get("sarcasm_detected", False),
             "Sentiment": result.get("sentiment", "Neutral"),
             "Reasoning": result.get("reasoning", "N/A"),
         }
     except Exception as e:
         print(f"[Error in CRIS Agent: {e}]")
-        return {"Intent": "Error", "Sarcasm": False, "Sentiment": "Neutral", "Reasoning": str(e)}
+        return {"Intent": "Error", "Sentiment": "Neutral", "Reasoning": str(e)}
 
-def analyze_and_write_to_file(sentence, context_window):
-    """Analyzes a sentence and writes the JSON result to the communication file."""
-    if len(sentence.split()) < 2: return
-
-    print(f"\n[Analyzing]> {sentence}")
-    analysis = CRIS_analyzer_agent(sentence, list(context_window))
-    
-    result_row = {
-        "Time": time.strftime("%H:%M:%S"),
-        "Sentence": sentence,
-        **analysis
-    }
-    
-    print(f"[Result]> {result_row}")
-
+def analyze_and_write_to_file(phrase, context_window):
+    """Analyzes an entire phrase and writes the JSON result to the communication file."""
+    if len(phrase.split()) < 2: return
+    analysis = analyze_sentence(phrase, list(context_window))
+    result_row = {"Time": datetime.datetime.now().strftime("%H:%M:%S"), "Sentence": phrase, **analysis}
     try:
-        with open(CONFIG["COMMUNICATION_FILE"], "a") as f:
-            f.write(json.dumps(result_row) + "\n")
+        with open(CONFIG["COMMUNICATION_FILE"], "a") as f: f.write(json.dumps(result_row) + "\n")
     except Exception as e:
         print(f"\n[ERROR writing to communication file: {e}]")
-    
-    context_window.append(sentence)
+    context_window.append(phrase)
 
 def live_transcribe_and_analyze(model):
     """Manages the real-time audio capture, transcription, and analysis loop."""
     p = pyaudio.PyAudio()
-    stream = p.open(format=CONFIG["FORMAT"], channels=CONFIG["CHANNELS"],
-                    rate=CONFIG["RATE"], input=True,
-                    frames_per_buffer=CONFIG["CHUNK"])
-    
-    print("\n" + "="*50)
-    print("✅ Backend is running. Listening for speech.")
-    print("   Press Ctrl+C in this terminal to stop.")
-    print("="*50 + "\n")
-    
-    audio_buffer = []
-    context_window = deque(maxlen=AGENT_CONFIG["CONTEXT_WINDOW"])
-    silence_start_time = None
-    is_speaking = False
-
+    stream = p.open(format=CONFIG["FORMAT"], channels=CONFIG["CHANNELS"], rate=CONFIG["RATE"], input=True, frames_per_buffer=CONFIG["CHUNK"])
+    print("\n" + "="*50 + "\n Backend is running. Listening for speech.\n   Press Ctrl+C to stop.\n" + "="*50 + "\n")
+    audio_buffer, context_window, is_speaking, silence_start_time = [], deque(maxlen=AGENT_CONFIG["CONTEXT_WINDOW"]), False, None
     try:
         while True:
             data = stream.read(CONFIG["CHUNK"], exception_on_overflow=False)
-            audio_chunk = np.frombuffer(data, dtype=np.int16)
-            rms = np.sqrt(np.mean(audio_chunk.astype(float)**2))
-
+            rms = np.sqrt(np.mean(np.frombuffer(data, dtype=np.int16).astype(float)**2))
             if rms > CONFIG["SILENCE_THRESHOLD"]:
-                if not is_speaking: is_speaking = True
-                silence_start_time = None
+                is_speaking, silence_start_time = True, None
                 audio_buffer.append(data)
             elif is_speaking:
                 if silence_start_time is None: silence_start_time = time.time()
-                
                 if time.time() - silence_start_time > CONFIG["SILENCE_DURATION"]:
-                    full_audio_data = b''.join(audio_buffer)
-                    audio_np = np.frombuffer(full_audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-                    
+                    audio_np = np.frombuffer(b''.join(audio_buffer), dtype=np.int16).astype(np.float32) / 32768.0
                     segments, info = model.transcribe(audio_np, beam_size=5)
-                    transcribed_phrase = "".join(segment.text for segment in segments).strip()
-                    
-                    if transcribed_phrase and info.language == 'en':
-                        punctuated_text = punctuation_model.restore_punctuation(transcribed_phrase)
-                        sentences = re.split(r'(?<=[.?!])\s+', punctuated_text)
-                        
-                        for sentence in sentences:
-                            if sentence:
-                                threading.Thread(
-                                    target=analyze_and_write_to_file,
-                                    args=(sentence.strip(), context_window)
-                                ).start()
-                    
+                    phrase = "".join(s.text for s in segments).strip()
+                    if phrase and info.language == 'en':
+                        punctuated_phrase = punctuation_model.restore_punctuation(phrase)
+                        if punctuated_phrase:
+                            analyze_and_write_to_file(punctuated_phrase, context_window)
                     audio_buffer, is_speaking, silence_start_time = [], False, None
-
     except KeyboardInterrupt:
-        print("\n\n" + "="*50)
-        print("Backend stopped by user.")
+        print("\n\n" + "="*50 + "\nBackend stopped by user.")
     finally:
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
+        stream.stop_stream(); stream.close(); p.terminate()
         print("Audio stream closed. Program finished.")
 
 if __name__ == "__main__":
-    if CONFIG["GROQ_API_KEY"] == "YOUR_GROQ_API_KEY_HERE":
-        print("FATAL: Please replace 'YOUR_GROQ_API_KEY_HERE' in backend.py with your actual Groq API key.")
-    else:
-        whisper_model = setup_models()
-        if whisper_model:
-            open(CONFIG["COMMUNICATION_FILE"], 'w').close()
-
-            live_transcribe_and_analyze(whisper_model)
+    whisper_model = setup_models()
+    if whisper_model:
+        open(CONFIG["COMMUNICATION_FILE"], 'w').close()
+        live_transcribe_and_analyze(whisper_model)
