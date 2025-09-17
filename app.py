@@ -5,10 +5,11 @@ import pandas as pd
 import datetime, time, json, os, io
 import gspread
 from gspread_dataframe import set_with_dataframe
+from csv_connector import get_crm_csv_bytes  # Milestone 3: CRM integration
 
 st.set_page_config(page_title="AI Sales Call Assistant", layout="wide")
 COMMUNICATION_FILE = "communication.jsonl"
-GOOGLE_SHEET_NAME = "Sales Call Sentiment Analysis" 
+GOOGLE_SHEET_NAME = "Sales Call Sentiment Analysis"
 
 st.title("🚀 AI Sales Call Assistant")
 st.markdown("Run `main.py` in a separate terminal, then click 'Start Monitoring'.")
@@ -54,6 +55,7 @@ def export_to_google_sheets(df_to_export):
     except Exception as e:
         return f"❌ Error: {e}"
 
+# --- Control Buttons ---
 c1, c2, c3 = st.columns(3)
 with c1:
     if st.button("▶ Start Monitoring", disabled=st.session_state.is_running, use_container_width=True):
@@ -79,21 +81,20 @@ if st.session_state.is_running: status_placeholder.success("🟢 Monitoring Live
 else: status_placeholder.warning("🟠 Monitoring Stopped", icon="🛑")
 
 df = pd.DataFrame(st.session_state.rows)
+if not df.empty and 'Reasoning' in df.columns:
+    df['Reasoning'] = df['Reasoning'].astype(str)
 
-# --- KEY CHANGE: More precise fix for data types to restore colors ---
-if not df.empty:
-    # Only convert the 'Reasoning' column to string, as it's the only one
-    # that might have inconsistent data types. This leaves other columns alone.
-    if 'Reasoning' in df.columns:
-        df['Reasoning'] = df['Reasoning'].astype(str)
+display_df = df.drop(columns=['Sarcasm'], errors='ignore') if not df.empty else pd.DataFrame(
+    columns=["Time", "Sentence", "Intent", "Sentiment", "Reasoning", "Recommendations", "Prompts"]
+)
 
-display_df = df.drop(columns=['Sarcasm'], errors='ignore') if not df.empty else pd.DataFrame(columns=["Time", "Sentence", "Intent", "Sentiment", "Reasoning"])
-
+# --- Live Logs & Insights ---
 left_col, right_col = st.columns(2)
 with left_col:
     st.subheader("Live Transcript Log")
     log_box = st.container(height=300, border=True)
     for log in st.session_state.logs: log_box.write(log)
+
 with right_col:
     st.subheader("Current Insight")
     insight_box = st.container(height=300, border=True)
@@ -101,14 +102,22 @@ with right_col:
     insight_data = df.iloc[selected_row_index] if selected_row_index != -1 else df.iloc[-1] if not df.empty else None
     if insight_data is not None:
         color = "green" if insight_data.get('Sentiment') == 'Positive' else "red" if insight_data.get('Sentiment') == 'Negative' else "orange"
-        insight_box.markdown(f"**Intent:** {insight_data.get('Intent')}\n\n**Sentiment:** :{color}[{insight_data.get('Sentiment')}]\n\n**Full Reasoning:**\n{insight_data.get('Reasoning')}")
-    else: insight_box.info("Waiting for insights...")
+        insight_box.markdown(
+            f"**Intent:** {insight_data.get('Intent')}\n\n"
+            f"**Sentiment:** :{color}[{insight_data.get('Sentiment')}]\n\n"
+            f"**Recommendations:** {', '.join(insight_data.get('Recommendations', []))}\n\n"
+            f"**Suggested Prompts:** {', '.join(insight_data.get('Prompts', []))}\n\n"
+            f"**Full Reasoning:**\n{insight_data.get('Reasoning')}"
+        )
+    else:
+        insight_box.info("Waiting for insights...")
 
 st.subheader("Conversation Insights")
 st.markdown("ℹ️ *Click a row to view its full details in the 'Current Insight' box above.*")
 if not display_df.empty:
     st.dataframe(display_df.style.apply(highlight_sentiment, axis=1), use_container_width=True, on_select="rerun", selection_mode="single-row", key="last_selection")
 
+# --- Export Call Summary ---
 if not df.empty:
     st.markdown("---")
     st.subheader("Export Call Summary")
@@ -124,6 +133,17 @@ if not df.empty:
             if "✅" in message: st.success(message)
             else: st.error(message)
 
+# --- Milestone 3: CRM CSV Download ---
+st.markdown("---")
+st.subheader("CRM Data")
+st.markdown("💾 Download CRM dataset as CSV")
+csv_bytes = get_crm_csv_bytes()
+if csv_bytes:
+    st.download_button(label="Download CRM CSV", data=csv_bytes, file_name="crm_data.csv", mime="text/csv", use_container_width=True)
+else:
+    st.info("CRM data not available.")
+
+# --- Auto-refresh for live monitoring ---
 if st.session_state.is_running:
     if read_new_data(): st.rerun()
     else: time.sleep(1); st.rerun()
