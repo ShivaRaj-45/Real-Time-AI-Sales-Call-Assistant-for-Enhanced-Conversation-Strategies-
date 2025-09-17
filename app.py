@@ -10,7 +10,7 @@ st.set_page_config(page_title="AI Sales Call Assistant", layout="wide")
 COMMUNICATION_FILE = "communication.jsonl"
 GOOGLE_SHEET_NAME = "Sales Call Sentiment Analysis" 
 
-st.title(" AI Sales Call Assistant")
+st.title("🚀 AI Sales Call Assistant")
 st.markdown("Run `main.py` in a separate terminal, then click 'Start Monitoring'.")
 
 if "is_running" not in st.session_state: st.session_state.is_running = False
@@ -50,33 +50,33 @@ def export_to_google_sheets(df_to_export):
         worksheet = spreadsheet.sheet1
         worksheet.clear()
         set_with_dataframe(worksheet, df_to_export)
-        return f" Exported to '{GOOGLE_SHEET_NAME}'!"
+        return f"✅ Exported to '{GOOGLE_SHEET_NAME}'!"
     except Exception as e:
-        return f" Error: {e}"
+        return f"❌ Error: {e}"
 
 c1, c2, c3 = st.columns(3)
 with c1:
-    if st.button(" Start Monitoring", disabled=st.session_state.is_running, use_container_width=True):
+    if st.button("▶ Start Monitoring", disabled=st.session_state.is_running, use_container_width=True):
         st.session_state.rows, st.session_state.logs, st.session_state.processed_lines = [], [], 0
         if os.path.exists(COMMUNICATION_FILE): os.remove(COMMUNICATION_FILE)
         st.session_state.is_running = True
         add_log("New call started. Monitoring...")
         st.rerun()
 with c2:
-    if st.button(" Stop Monitoring", disabled=not st.session_state.is_running, use_container_width=True):
+    if st.button("⏹ Stop Monitoring", disabled=not st.session_state.is_running, use_container_width=True):
         st.session_state.is_running = False
         add_log("Monitoring stopped.")
         st.rerun()
 with c3:
-    if st.button(" Clear", use_container_width=True):
+    if st.button("🧹 Clear", use_container_width=True):
         st.session_state.rows, st.session_state.logs, st.session_state.processed_lines = [], [], 0
         if os.path.exists(COMMUNICATION_FILE): os.remove(COMMUNICATION_FILE)
         add_log("Dashboard cleared.")
         st.rerun()
 
 status_placeholder = st.empty()
-if st.session_state.is_running: status_placeholder.success(" Monitoring Live", icon="")
-else: status_placeholder.warning(" Monitoring Stopped", icon="")
+if st.session_state.is_running: status_placeholder.success("🟢 Monitoring Live", icon="📡")
+else: status_placeholder.warning("🟠 Monitoring Stopped", icon="🛑")
 
 df = pd.DataFrame(st.session_state.rows)
 
@@ -105,7 +105,7 @@ with right_col:
     else: insight_box.info("Waiting for insights...")
 
 st.subheader("Conversation Insights")
-st.markdown("ℹ *Click a row to view its full details in the 'Current Insight' box above.*")
+st.markdown("ℹ️ *Click a row to view its full details in the 'Current Insight' box above.*")
 if not display_df.empty:
     st.dataframe(display_df.style.apply(highlight_sentiment, axis=1), use_container_width=True, on_select="rerun", selection_mode="single-row", key="last_selection")
 
@@ -117,11 +117,11 @@ if not df.empty:
         towrite_excel = io.BytesIO()
         df.to_excel(towrite_excel, index=False, sheet_name="Summary")
         towrite_excel.seek(0)
-        st.download_button(label=" Export to Excel", data=towrite_excel, file_name="call_summary.xlsx", use_container_width=True)
+        st.download_button(label="📊 Export to Excel", data=towrite_excel, file_name="call_summary.xlsx", use_container_width=True)
     with export_c2:
-        if st.button(" Export to Google Sheets", use_container_width=True):
+        if st.button("📤 Export to Google Sheets", use_container_width=True):
             with st.spinner("Exporting..."): message = export_to_google_sheets(df)
-            if "" in message: st.success(message)
+            if "✅" in message: st.success(message)
             else: st.error(message)
 
 if st.session_state.is_running:
