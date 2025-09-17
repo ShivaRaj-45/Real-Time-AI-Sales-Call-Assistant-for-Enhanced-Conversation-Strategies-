@@ -1,7 +1,15 @@
-pyaudio
-faster-whisper
-torch
+# Core AI & Data
 numpy
-gspread
+pandas
+faster-whisper
 groq
 deepmultilingualpunctuation
+
+# Frontend
+streamlit
+
+# Google Sheets Export
+gspread
+gspread-dataframe
+oauth2client
+openpyxl
