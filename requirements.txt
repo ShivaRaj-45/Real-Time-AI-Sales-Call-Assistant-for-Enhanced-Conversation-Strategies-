@@ -1,15 +1,11 @@
-# Core AI & Data
-numpy
+streamlit
 pandas
+numpy<2.0
+PyAudio
+torch
 faster-whisper
 groq
 deepmultilingualpunctuation
-
-# Frontend
-streamlit
-
-# Google Sheets Export
 gspread
 gspread-dataframe
-oauth2client
-openpyxl
+scikit-learn
